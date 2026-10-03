@@ -2,8 +2,11 @@
 <html lang="ru">
 <head>
   <meta charset="UTF-8" />
+  <meta http-equiv="Cache-Control" content="no-cache, no-store, must-revalidate">
+  <meta http-equiv="Pragma" content="no-cache">
   <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover" />
   <title>Albert Shop — Admin</title>
+  <script src="https://telegram.org/js/telegram-web-app.js"></script>
   <style>
     @import url('https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800;900&display=swap');
     :root {
@@ -99,7 +102,7 @@
 <body>
 
   <header class="header">
-    <div class="header-title">⚙️ Admin — Albert Shop</div>
+    <div class="header-title">⚙️ Admin — Albert Shop <span style="font-size:11px;color:#8e8e93;font-weight:600">v2-gallery</span></div>
     <a class="btn-back-shop" href="index.html">← В магазин</a>
   </header>
 
@@ -140,7 +143,9 @@
       <div class="aform-group">
         <label class="aform-label">Фото <span>*</span> <span style="font-weight:400;color:#666;text-transform:none;font-size:10px;">(имена файлов: photo.jpg)</span></label>
         <div class="img-list" id="aImgList"></div>
-        <button class="btn-add-img-row" onclick="aAddImgRow()">+ Добавить фото</button>
+        <button class="btn-add-img-row" onclick="document.getElementById('aFileInp').click()">📷 Загрузить из галереи</button>
+        <button class="btn-add-img-row" style="margin-top:6px" onclick="aAddImgRow()">+ Имя файла (photo.jpg)</button>
+        <input type="file" id="aFileInp" accept="image/*" multiple style="display:none" onchange="aPickPhotos(this)">
       </div>
       <div class="aform-group">
         <label class="aform-label">Размеры <span>*</span></label>
@@ -192,7 +197,7 @@
     ];
     function saveProducts() {
       if (!safeSet('shopProducts', JSON.stringify(PRODUCTS))) {
-        showToast('Не удалось сохранить (localStorage недоступен)');
+        showToast('Не сохранилось: память браузера заполнена. Удалите старые фото или добавьте меньше.');
       }
     }
     function isSoldOut(p) { return p.stock !== undefined && p.stock <= 0; }
@@ -238,7 +243,6 @@
         ['afName','afPrice','afDesc','afSku','afBrand','afCondition','afComplect'].forEach(fid=>document.getElementById(fid).value='');
         document.getElementById('afStock').value = '1';
         document.getElementById('afCat').value = 'Футболки';
-        aAddImgRow('');
       }
       aRenderSizes();
       document.getElementById('aModalOverlay').classList.add('show');
@@ -246,8 +250,38 @@
     function aCloseModal(){ document.getElementById('aModalOverlay').classList.remove('show'); }
     function aAddImgRow(val=''){
       const row = document.createElement('div'); row.className = 'img-row';
-      row.innerHTML = `<input type="text" class="aform-input aimg-input" placeholder="photo.jpg" value="${val}"><button class="btn-rm-img" onclick="this.parentElement.remove()">✕</button>`;
+      const thumb = val.startsWith('data:') ? `<img src="${val}" style="width:44px;height:44px;border-radius:8px;object-fit:cover;flex-shrink:0">` : '';
+      const field = val.startsWith('data:')
+        ? `<span style="flex:1;font-size:12px;color:#8e8e93;align-self:center">Фото из галереи</span><input type="hidden" class="aimg-input" value="${val}">`
+        : `<input type="text" class="aform-input aimg-input" placeholder="photo.jpg" value="${val}">`;
+      row.innerHTML = `${thumb}${field}<button class="btn-rm-img" onclick="this.parentElement.remove()">✕</button>`;
       document.getElementById('aImgList').appendChild(row);
+    }
+    // shrink photo so it fits in browser storage
+    function aCompress(file, max = 900, q = 0.72) {
+      return new Promise((res, rej) => {
+        const fr = new FileReader();
+        fr.onerror = rej;
+        fr.onload = () => {
+          const img = new Image();
+          img.onerror = rej;
+          img.onload = () => {
+            const k = Math.min(1, max / Math.max(img.width, img.height));
+            const c = document.createElement('canvas'); c.width = Math.round(img.width * k); c.height = Math.round(img.height * k);
+            c.getContext('2d').drawImage(img, 0, 0, c.width, c.height);
+            res(c.toDataURL('image/jpeg', q));
+          };
+          img.src = fr.result;
+        };
+        fr.readAsDataURL(file);
+      });
+    }
+    async function aPickPhotos(inp) {
+      const files = [...inp.files]; inp.value = '';
+      for (const f of files) {
+        try { aAddImgRow(await aCompress(f)); } catch (e) { showToast('Не удалось открыть фото'); }
+      }
+      if (files.length) showToast(`Добавлено фото: ${files.length}`, true);
     }
     function aAddSize(){
       const inp = document.getElementById('aSzInput'), val = inp.value.trim(); if (!val) return;
@@ -312,10 +346,11 @@
     const ADMIN_IDS = [7760326635, 1727558676];
     const TG_BOT_TOKEN = '8660028827:AAFX0knahCJtUx1ep5C2a59Ow-aW9IreiDI';
     const APP_SHORT_NAME = ''; // keep equal to index.html
+    try { window.Telegram?.WebApp?.ready(); window.Telegram?.WebApp?.expand(); } catch (e) {}
     const _u = window.Telegram?.WebApp?.initDataUnsafe?.user;
     const _dev = /^(localhost|127\.0\.0\.1)$/.test(location.hostname); // local testing in VS Code stays open
     if (!_dev && !ADMIN_IDS.includes(_u?.id)) {
-      document.body.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font:700 16px Inter,sans-serif;color:#fff;background:#000;text-align:center;padding:30px">🚫 Нет доступа</div>';
+      document.body.innerHTML = '<div style="min-height:100vh;display:flex;align-items:center;justify-content:center;font:700 16px Inter,sans-serif;color:#fff;background:#000;text-align:center;padding:30px">🚫 Нет доступа<br><span style="font-size:12px;color:#8e8e93;font-weight:500">Ваш Telegram ID: ' + (_u?.id || 'не определён') + '</span></div>';
       throw new Error('not admin');
     }
     const esc = t => String(t ?? '').replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#39;'}[c]));
