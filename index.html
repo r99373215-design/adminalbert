@@ -162,6 +162,7 @@
       <button class="tab-btn" data-tab="Orders">Заказы</button>
       <button class="tab-btn" data-tab="Users">Клиенты</button>
       <button class="tab-btn" data-tab="Brands">Бренды</button>
+      <button class="tab-btn" data-tab="Broadcast">Рассылка</button>
     </div>
 
     <!-- PRODUCTS -->
@@ -192,6 +193,28 @@
           <input type="text" class="aform-input" id="brandInput" placeholder="Новый бренд">
           <button class="btn-admin-add" data-act="addBrand">Добавить</button>
         </div>
+      </div>
+    </div>
+
+    <!-- BROADCAST -->
+    <div class="panel" id="panelBroadcast">
+      <div class="admin-section-head">Рассылка по клиентам бота</div>
+      <div class="box">
+        <div class="ord-meta" id="bcCount" style="margin-bottom:12px;">Получателей: …</div>
+        <div class="aform-group"><label class="aform-label">Текст сообщения <span>*</span></label>
+          <textarea class="aform-textarea" id="bcText" style="min-height:120px;" maxlength="4000" placeholder="Новое поступление! Загляни в каталог"></textarea></div>
+        <div class="aform-group"><label class="aform-label">Фото (необязательно, тогда текст до 1000 символов)</label>
+          <div id="bcPhotoBox" style="margin-bottom:8px;"></div>
+          <div class="photo-btns"><button class="btn-upload" type="button" id="bcUpload">📷 Загрузить фото</button><button class="btn-add-img-row" type="button" data-act="bcClearPhoto">Убрать</button></div>
+          <input type="file" id="bcFile" accept="image/*" style="display:none;"></div>
+        <div class="aform-row">
+          <div class="aform-group"><label class="aform-label">Текст кнопки</label><input type="text" class="aform-input" id="bcBtnText" value="КАТАЛОГ" maxlength="30"></div>
+          <div class="aform-group"><label class="aform-label">Кнопка ведёт</label><input type="text" class="aform-input" id="bcBtnUrl" placeholder="адрес магазина"></div>
+        </div>
+        <div class="aform-group"><label class="aform-label">Тест: только на эти ID (через запятую)</label><input type="text" class="aform-input" id="bcOnly" placeholder="пусто = всем"></div>
+        <div class="ord-meta" id="bcProgress" style="margin-bottom:10px;"></div>
+        <button class="btn-asave" style="width:100%;" type="button" id="bcSend" data-act="bcSend">Отправить рассылку</button>
+        <div class="ord-meta" style="margin-top:10px;">Получают те, кто открывал магазин в Telegram и не забанен. Кто заблокировал бота, сообщение не получит.</div>
       </div>
     </div>
   </div>
@@ -608,6 +631,57 @@
       } else { fallback(); }
     }
 
+    // ══════════ РАССЫЛКА ══════════
+    let bcPhoto = '';
+    function renderBcPhoto() {
+      $('bcPhotoBox').innerHTML = bcPhoto ? `<img src="${esc(bcPhoto)}" style="max-width:100%;max-height:160px;border-radius:10px;">` : '';
+    }
+    async function loadBcCount() {
+      const { data, error } = await sb.rpc('broadcast_count');
+      $('bcCount').textContent = error ? 'Получателей: не удалось узнать (' + error.message + ')' : 'Получателей: ' + data;
+      return error ? 0 : Number(data);
+    }
+    async function sendBroadcast() {
+      const text = $('bcText').value.trim();
+      if (!text) { toast('Введите текст!'); return; }
+      if (bcPhoto && text.length > 1000) { toast('С фото текст до 1000 символов'); return; }
+      const only = $('bcOnly').value.trim();
+      const btnText = $('bcBtnText').value.trim();
+      const btnUrl = $('bcBtnUrl').value.trim() || SHOP_URL;
+      const total = only ? only.split(',').filter(x => x.trim()).length : await loadBcCount();
+      if (!total) { toast('Нет получателей'); return; }
+      askConfirm('Отправить рассылку?', `Получателей: ${total}${only ? ' (тест)' : ''}`, async () => {
+        const btn = $('bcSend'); btn.disabled = true;
+        const args = { p_text: text, p_photo: bcPhoto, p_btn_text: btnText, p_btn_url: btnText ? btnUrl : '', p_only: only };
+        let sent = 0, failed = false;
+        try {
+          if (only) {
+            const { error } = await sb.rpc('broadcast_batch', { ...args, p_offset: 0, p_limit: 100 });
+            if (error) throw error; sent = total;
+          } else {
+            for (let off = 0; off < total; off += 20) {
+              $('bcProgress').textContent = `Отправка… ${Math.min(off, total)} из ${total}`;
+              const { error } = await sb.rpc('broadcast_batch', { ...args, p_offset: off, p_limit: 20 });
+              if (error) throw error;
+              sent = Math.min(off + 20, total);
+              await new Promise(r => setTimeout(r, 1100));
+            }
+          }
+        } catch (e) { failed = true; toast('Ошибка рассылки: ' + (e.message || e)); }
+        $('bcProgress').textContent = failed ? `Остановлено на ${sent} из ${total}` : `Готово: отправлено ${sent} из ${total}`;
+        btn.disabled = false;
+        if (!failed) toast('Рассылка отправлена ✅', true);
+      });
+    }
+    $('bcUpload').addEventListener('click', () => $('bcFile').click());
+    $('bcFile').addEventListener('change', async e => {
+      const f = e.target.files[0]; e.target.value = ''; if (!f) return;
+      $('bcUpload').disabled = true;
+      try { bcPhoto = await uploadPhoto(f); renderBcPhoto(); toast('Фото загружено', true); }
+      catch (err) { toast('Фото не загрузилось: ' + (err.message || err)); }
+      $('bcUpload').disabled = false;
+    });
+
     // ══════════ ПОДТВЕРЖДЕНИЕ ══════════
     function askConfirm(text, sub, cb) {
       $('confirmText').innerText = text; $('confirmSub').innerText = sub; confirmCb = cb;
@@ -634,6 +708,8 @@
         case 'rmSize': curSizes = curSizes.filter(x => x !== b.dataset.size); renderSizes(); break;
         case 'importLegacy': importLegacy(); break;
         case 'copyLink': copyLink(Number(id)); break;
+        case 'bcSend': sendBroadcast(); break;
+        case 'bcClearPhoto': bcPhoto = ''; renderBcPhoto(); break;
         case 'delOrder': askConfirm('Удалить заказ?', id, () => deleteOrder(id)); break;
         case 'toggleBan': toggleBan(id); break;
         case 'addBrand': addBrand(); break;
@@ -653,6 +729,7 @@
       $('panel' + btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'Orders') { await loadOrders(); renderOrders(); renderStats(); }
       if (btn.dataset.tab === 'Users') { await loadUsers(); renderUsers(); renderStats(); }
+      if (btn.dataset.tab === 'Broadcast') { if (!$('bcBtnUrl').value) $('bcBtnUrl').value = SHOP_URL; loadBcCount(); }
     }));
     $('btnUpload').addEventListener('click', () => $('fileInput').click());
     $('fileInput').addEventListener('change', async e => {
