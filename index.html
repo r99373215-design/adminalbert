@@ -35,10 +35,17 @@
     .admin-stat{background:var(--surface);border:1px solid var(--border);border-radius:var(--radius);padding:11px;}
     .admin-stat-label{font-size:9px;color:var(--text-secondary);text-transform:uppercase;font-weight:700;margin-bottom:3px;letter-spacing:0.5px;}
     .admin-stat-val{font-size:18px;font-weight:900;}
-    .tabs{display:flex;gap:8px;overflow-x:auto;padding:0 16px 12px;scrollbar-width:none;}
+    .tabs{display:flex;gap:8px;overflow-x:auto;padding:2px 16px 14px;scrollbar-width:none;scroll-behavior:smooth;scroll-snap-type:x proximity;-webkit-overflow-scrolling:touch;-webkit-mask-image:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 34px),transparent 100%);mask-image:linear-gradient(90deg,transparent 0,#000 14px,#000 calc(100% - 34px),transparent 100%);}
     .tabs::-webkit-scrollbar{display:none;}
-    .tab-btn{flex-shrink:0;background:var(--surface);border:1px solid var(--border);color:#fff;padding:9px 14px;border-radius:20px;font:700 13px Inter,sans-serif;cursor:pointer;}
-    .tab-btn.active{background:#fff;color:#000;border-color:#fff;}
+    .tab-btn{flex-shrink:0;scroll-snap-align:center;background:var(--surface);border:1px solid var(--border);color:#c9c9ce;padding:10px 17px;border-radius:22px;font:700 13px Inter,sans-serif;cursor:pointer;transition:background .25s,color .25s,transform .25s,box-shadow .25s,border-color .25s;}
+    .tab-btn:active{transform:scale(0.96);}
+    .tab-btn.active{background:linear-gradient(135deg,#ffffff,#dfe6f2);color:#000;border-color:#fff;transform:scale(1.04);box-shadow:0 4px 18px rgba(255,255,255,0.18);}
+    .search-input{width:100%;background:var(--bg);border:1px solid var(--border);color:#fff;padding:12px 14px 12px 40px;border-radius:14px;font:500 14px Inter,sans-serif;outline:none;background-image:url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='18' height='18' viewBox='0 0 24 24' fill='none' stroke='%238e8e93' stroke-width='2.2' stroke-linecap='round'%3E%3Ccircle cx='11' cy='11' r='7'/%3E%3Cpath d='M21 21l-4.3-4.3'/%3E%3C/svg%3E");background-repeat:no-repeat;background-position:13px center;}
+    .search-input:focus{border-color:var(--accent);}
+    .fchips{display:flex;gap:8px;margin:12px 0 10px;flex-wrap:wrap;}
+    .fchip{background:var(--surface2);border:1px solid var(--border);color:#c9c9ce;padding:7px 13px;border-radius:18px;font:600 12px Inter,sans-serif;cursor:pointer;transition:all .2s;}
+    .fchip.active{background:var(--accent);border-color:var(--accent);color:#fff;}
+    .users-count{font-size:12px;color:var(--text-secondary);margin-bottom:6px;}
     .panel{display:none;padding-bottom:40px;}
     .panel.active{display:block;}
 
@@ -181,7 +188,16 @@
     <!-- USERS -->
     <div class="panel" id="panelUsers">
       <div class="admin-section-head">Клиенты (бан / разбан)</div>
-      <div class="box" id="usersList"></div>
+      <div class="box">
+        <input type="search" class="search-input" id="userSearch" placeholder="Поиск: ID, имя или @ник" autocomplete="off" autocapitalize="off" spellcheck="false">
+        <div class="fchips">
+          <button class="fchip active" data-act="userFilter" data-f="all">Все</button>
+          <button class="fchip" data-act="userFilter" data-f="tg">Из Telegram</button>
+          <button class="fchip" data-act="userFilter" data-f="banned">Забаненные</button>
+        </div>
+        <div class="users-count" id="usersCount"></div>
+        <div id="usersList"></div>
+      </div>
     </div>
 
     <!-- BRANDS -->
@@ -341,7 +357,7 @@
       await refreshAll();
     }
     async function refreshAll() {
-      await Promise.all([loadProducts(), loadBrands(), loadOrders(), loadUsers()]);
+      await Promise.all([loadProducts(), loadBrands(), loadOrders(), loadUsers(), loadUserStats()]);
       renderAll();
     }
 
@@ -361,10 +377,23 @@
       if (error) { toast('Заказы: ' + error.message); return; }
       ORDERS = data || [];
     }
+    let userQuery = '', userFilter = 'all', USER_STATS = { total: 0, banned: 0 };
     async function loadUsers() {
-      const { data, error } = await sb.from('shop_users').select('*').order('last_seen', { ascending: false }).limit(500);
+      let q = sb.from('shop_users').select('*').order('last_seen', { ascending: false }).limit(100);
+      if (userFilter === 'tg') q = q.not('id', 'like', 'web_%');
+      if (userFilter === 'banned') q = q.eq('banned', true);
+      const term = userQuery.trim().replace(/^@/, '').replace(/[,()%*\\]/g, '');
+      if (term) q = q.or(`id.ilike.%${term}%,name.ilike.%${term}%,username.ilike.%${term}%`);
+      const { data, error } = await q;
       if (error) { toast('Клиенты: ' + error.message); return; }
       USERS = data || [];
+    }
+    async function loadUserStats() {
+      const [t, b] = await Promise.all([
+        sb.from('shop_users').select('id', { count: 'exact', head: true }),
+        sb.from('shop_users').select('id', { count: 'exact', head: true }).eq('banned', true)
+      ]);
+      USER_STATS = { total: t.count || 0, banned: b.count || 0 };
     }
 
     // ══════════ ОТРИСОВКА ══════════
@@ -380,8 +409,8 @@
         st('Категорий', cats, '#ffcc00') +
         st('Заказов', ORDERS.length, 'var(--accent)') +
         st('Выручка', fmt(revenue) + ' ₽', '#ffcc00') +
-        st('Клиентов', USERS.length, '#3cc98d') +
-        st('Забанено', USERS.filter(u => u.banned).length, 'var(--error)');
+        st('Клиентов', USER_STATS.total, '#3cc98d') +
+        st('Забанено', USER_STATS.banned, 'var(--error)');
     }
 
     function legacyProducts() {
@@ -443,7 +472,8 @@
 
     function renderUsers() {
       const box = $('usersList');
-      if (!USERS.length) { box.innerHTML = '<div class="empty-state" style="padding:16px;">Пока никого</div>'; return; }
+      $('usersCount').textContent = USERS.length ? `Найдено: ${USERS.length}${USERS.length >= 100 ? ' (показаны первые 100, уточните поиск)' : ''}` : '';
+      if (!USERS.length) { box.innerHTML = '<div class="empty-state" style="padding:16px;">' + (userQuery.trim() ? 'Никого не нашли' : 'Пока никого') + '</div>'; return; }
       box.innerHTML = USERS.map(u => `<div class="user-row"><div style="min-width:0;">
           <b>${esc(u.name || 'Гость')}</b> ${u.username ? '@' + esc(u.username) : ''}${u.banned ? ' 🚫' : ''}
           <div class="user-sub">id ${esc(u.id)} · визитов ${esc(u.visits)} · ${esc(new Date(u.last_seen).toLocaleDateString('ru-RU'))}</div>
@@ -595,7 +625,10 @@
       const banned = !u.banned;
       const { error } = await sb.from('shop_users').update({ banned }).eq('id', id);
       if (error) { toast('Не сохранилось: ' + error.message); return; }
-      u.banned = banned; renderStats(); renderUsers();
+      u.banned = banned;
+      USER_STATS.banned += banned ? 1 : -1;
+      if (userFilter === 'banned' && !banned) USERS = USERS.filter(x => x.id !== id);
+      renderStats(); renderUsers();
       toast(banned ? 'Пользователь забанен' : 'Пользователь разбанен', true);
     }
     async function saveBrands() {
@@ -673,6 +706,12 @@
         if (!failed) toast('Рассылка отправлена ✅', true);
       });
     }
+    let userSearchTimer = null;
+    $('userSearch').addEventListener('input', e => {
+      userQuery = e.target.value;
+      clearTimeout(userSearchTimer);
+      userSearchTimer = setTimeout(() => loadUsers().then(renderUsers), 300);
+    });
     $('bcUpload').addEventListener('click', () => $('bcFile').click());
     $('bcFile').addEventListener('change', async e => {
       const f = e.target.files[0]; e.target.value = ''; if (!f) return;
@@ -709,6 +748,11 @@
         case 'importLegacy': importLegacy(); break;
         case 'copyLink': copyLink(Number(id)); break;
         case 'bcSend': sendBroadcast(); break;
+        case 'userFilter': {
+          userFilter = b.dataset.f;
+          document.querySelectorAll('.fchip').forEach(x => x.classList.toggle('active', x === b));
+          loadUsers().then(renderUsers); break;
+        }
         case 'bcClearPhoto': bcPhoto = ''; renderBcPhoto(); break;
         case 'delOrder': askConfirm('Удалить заказ?', id, () => deleteOrder(id)); break;
         case 'toggleBan': toggleBan(id); break;
@@ -725,10 +769,11 @@
     });
     document.querySelectorAll('.tab-btn').forEach(btn => btn.addEventListener('click', async () => {
       document.querySelectorAll('.tab-btn').forEach(x => x.classList.toggle('active', x === btn));
+      try { btn.scrollIntoView({ behavior: 'smooth', inline: 'center', block: 'nearest' }); } catch (e) {}
       document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
       $('panel' + btn.dataset.tab).classList.add('active');
       if (btn.dataset.tab === 'Orders') { await loadOrders(); renderOrders(); renderStats(); }
-      if (btn.dataset.tab === 'Users') { await loadUsers(); renderUsers(); renderStats(); }
+      if (btn.dataset.tab === 'Users') { await Promise.all([loadUsers(), loadUserStats()]); renderUsers(); renderStats(); }
       if (btn.dataset.tab === 'Broadcast') { if (!$('bcBtnUrl').value) $('bcBtnUrl').value = SHOP_URL; loadBcCount(); }
     }));
     $('btnUpload').addEventListener('click', () => $('fileInput').click());
