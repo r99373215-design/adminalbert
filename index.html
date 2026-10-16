@@ -401,14 +401,15 @@
 
     function renderStats() {
       const cats = new Set(PRODUCTS.map(p => p.category)).size;
-      const revenue = ORDERS.filter(o => !stArr(o.data).join().includes('Отмен'))
-        .reduce((a, o) => a + (Number(o.data && o.data.total) || 0), 0);
+      const COUNTED = ['Подтверждён', 'Отправлен', 'Выполнен'];
+      const revenue = ORDERS.filter(o => COUNTED.includes(stArr(o.data).slice(-1)[0]))
+        .reduce((x, o) => x + (Number(o.data && o.data.total) || 0), 0);
       const st = (l, v, c) => `<div class="admin-stat"><div class="admin-stat-label">${l}</div><div class="admin-stat-val" style="color:${c}">${v}</div></div>`;
       $('statsBox').innerHTML =
         st('Товаров', PRODUCTS.length, 'var(--accent)') +
         st('Категорий', cats, '#ffcc00') +
         st('Заказов', ORDERS.length, 'var(--accent)') +
-        st('Выручка', fmt(revenue) + ' ₽', '#ffcc00') +
+        st('Выручка (подтв.)', fmt(revenue) + ' ₽', '#ffcc00') +
         st('Клиентов', USER_STATS.total, '#3cc98d') +
         st('Забанено', USER_STATS.banned, 'var(--error)');
     }
