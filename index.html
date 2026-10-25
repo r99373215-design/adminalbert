@@ -475,9 +475,10 @@
       const box = $('usersList');
       $('usersCount').textContent = USERS.length ? `Найдено: ${USERS.length}${USERS.length >= 100 ? ' (показаны первые 100, уточните поиск)' : ''}` : '';
       if (!USERS.length) { box.innerHTML = '<div class="empty-state" style="padding:16px;">' + (userQuery.trim() ? 'Никого не нашли' : 'Пока никого') + '</div>'; return; }
+      const who = u => u.username ? '@' + u.username : (String(u.id).startsWith('web_') ? 'гость с сайта' : 'id ' + u.id);
       box.innerHTML = USERS.map(u => `<div class="user-row"><div style="min-width:0;">
-          <b>${esc(u.name || 'Гость')}</b> ${u.username ? '@' + esc(u.username) : ''}${u.banned ? ' 🚫' : ''}
-          <div class="user-sub">id ${esc(u.id)} · визитов ${esc(u.visits)} · ${esc(new Date(u.last_seen).toLocaleDateString('ru-RU'))}</div>
+          <b>${esc(u.name || 'Гость')}</b>${u.banned ? ' 🚫' : ''}
+          <div class="user-sub">${esc(who(u))} · визитов ${esc(u.visits)} · ${esc(new Date(u.last_seen).toLocaleDateString('ru-RU'))}</div>
         </div><button class="${u.banned ? 'btn-a-ok' : 'btn-a-del'}" data-act="toggleBan" data-id="${esc(u.id)}">${u.banned ? 'Разбан' : 'Бан'}</button></div>`).join('');
     }
 
